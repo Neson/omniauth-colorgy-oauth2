@@ -121,6 +121,65 @@ config.omniauth :colorgy, ENV['APP_ID'], ENV['APP_SECRET'],
 - `includes`: An array to select includable related data (e.g. `primary_identity`, `organizations`) to be included with the user's infomation. It will be convenient that you won't have to make another API call to get the data.
 - `client_options`: A hash to specify the client configurations. Set this to `{ site: 'https://server.url' }` to change the API server that you want to use.
 
+
+## Single-Sign On/Off (SSO)
+
+_(Optional)_
+
+The Colorgy SSO system is implemented uning OAuth 2.0 as the authorization protocol and Sign-on Status Tokens (SST) to verify the sign-on status of the user, achieving signing in and out seamlessly controlled by a central server.
+
+The Sign-on Status Token (SST) is stored in an cross-domain cookie (`_sst`) to represent the sign on status of the current user. SSTs are trully [JSON Web Tokens (JWT)](https://tools.ietf.org/html/draft-ietf-oauth-json-web-token) containing identification information, signed by a RSA private key. Clients (other services under this SSO system) will be able to decode and verify the infomation using a corresponding RSA public key, and make reasonable reactions according to the infomation it provided.
+
+This gem has implemented some solutions to cover certain use cases.
+
+
+### Using Devise With Rails: `ColorgyDeviseSSOManager`
+
+First, make sure Devise is setup properly to OmniAuth with Colorgy - clicking the 'Sign in with Colorgy' link will sign you in.
+
+Then confirm that you have at least copy down the `uuid` (and accessable via User#uuid) or `id` (accessable via User#sid or User#cid) property when users are signing in from Colorgy Core. A sample is as below:
+
+```ruby
+# /app/models/user.rb
+
+# ...
+
+  def self.from_colorgy(auth, signed_in_resource=nil)
+    # The uuid is copied down during creation!
+    user = where(:uuid => auth.info.uuid).first_or_create! do |user|
+      user.email = auth.info.email
+    end
+  end
+
+# ...
+```
+
+You might want your local user data to be updated automatically when the core data is. If so, add a `refreshed_at` column to your User model and let your application be able to determine whether a refresh is needed (comparing the `update_at` in SST and this column):
+
+```bash
+rails g migration add_refreshed_at_to_users refreshed_at:datetime
+rake db:migrate
+```
+
+Then just include `ColorgyDeviseSSOManager` in your ApplicationController and all the rest is done:
+
+```ruby
+# app/controllers/application_controller.rb
+
+class ApplicationController < ActionController::Base
+  include ColorgyDeviseSSOManager
+  include FlashMessageReporter
+end
+```
+
+_`FlashMessageReporter` is optional, include it if you want to relay flash messages from core to your app ._
+
+`ColorgyDeviseSSOManager` also provide two URL helper methods: `sign_out_url`, `logout_url` pointed to the core sign out URL. You can replace your orginal logout link (maybe `destroy_user_session_path`) with these. (Since it's an SSO, signing out of the core server means to sign out of your application too.)
+
+```ruby
+<%= link_to("Log Out", sign_out_url, method: :delete) %>
+```
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `bin/console` for an interactive prompt that will allow you to experiment.
